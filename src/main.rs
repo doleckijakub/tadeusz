@@ -90,6 +90,8 @@ impl Tadeusz {
     }
 
     fn reset(&mut self) {
+        // eprintln!("Old buffer: {:?}", self.input_buffer);
+
         let new_self = Self::new();
 
         self.input_buffer = new_self.input_buffer;
@@ -105,6 +107,10 @@ impl Tadeusz {
 
     async fn handle_message_chunk(&mut self, stream: &mut (impl Stream<Item = reqwest::Result<Bytes>> + Unpin)) {
         while let Some(chunk) = stream.next().await {
+            // if self.done {
+            //     stream.close();
+            // }
+
             if let Ok(bytes) = chunk {
                 if let Ok(text) = String::from_utf8(bytes.to_vec()) {
                     let data: Value = serde_json::from_str(&text).expect("Could not parse ollama as a JSON response");
@@ -170,7 +176,7 @@ impl Tadeusz {
             },
             _ => {
                 // TODO: ponder what to do here
-                // eprintln!("{}", &self.input_buffer[self.last_token_start..].trim());
+                // eprintln!("{}", self.input_buffer.trim());
                 // for token in tokens {
                 //     eprint!("{}", token);
                 //     io::stdout().flush().unwrap();
