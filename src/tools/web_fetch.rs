@@ -1,12 +1,16 @@
+use async_trait::async_trait;
 use reqwest;
 use serde::Deserialize;
 use serde_json::json;
+
+use crate::error::Result;
 
 #[derive(Debug, Deserialize)]
 pub struct WebFetch {
     pub url: String,
 }
 
+#[async_trait]
 impl super::ToolType for WebFetch {
     fn name() -> &'static str {
         "web_fetch"
@@ -29,7 +33,7 @@ impl super::ToolType for WebFetch {
         })
     }
 
-    async fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
+    async fn execute(&self) -> Result<String> {
         let resp = reqwest::Client::new()
             .get(&self.url)
             .send()

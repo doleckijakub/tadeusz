@@ -1,13 +1,17 @@
+use async_trait::async_trait;
 use duckduckgo::browser::Browser;
 use duckduckgo::response::Response;
 use serde::Deserialize;
 use serde_json::{Value, json};
+
+use crate::error::{Error, Result};
 
 #[derive(Debug, Deserialize)]
 pub struct WebSearch {
     pub query: String,
 }
 
+#[async_trait]
 impl super::ToolType for WebSearch {
     fn name() -> &'static str {
         "web_search"
@@ -30,11 +34,14 @@ impl super::ToolType for WebSearch {
         })
     }
 
-    async fn execute(&self) -> Result<String, Box<dyn std::error::Error>> {
+    async fn execute(&self) -> Result<String> {
         let browser = Browser::new();
 
         let path = format!("?q={}", urlencoding::encode(&self.query));
-        let resp: Response = browser.get_api_response(&path, None).await?;
+        let resp: Response = browser
+            .get_api_response(&path, None)
+            .await
+            .map_err(|e| Error::DuckDuckGo(e.to_string()))?;
 
         let mut out = String::new();
 

@@ -6,12 +6,13 @@ use openrouter_rs::{
     types::Role,
 };
 
+mod error;
 mod tools;
 
-use tools::ToolType;
+use error::Result;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     let api_key = std::env::var("OPENROUTER_API_KEY")
         .expect("OPENROUTER_API_KEY environment variable not set");
 
@@ -21,12 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .x_title("Tadeusz")
         .build()?;
 
-    let available_tools = {
-        let web_search_tool = tools::tool::<tools::web_search::WebSearch>()?;
-        let web_fetch_tool = tools::tool::<tools::web_fetch::WebFetch>()?;
-
-        vec![web_search_tool, web_fetch_tool]
-    };
+    let available_tools = tools::registry::all_tools()?;
 
     let mut messages = vec![Message::new(
         Role::System,
@@ -86,24 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Some(calls) = tool_calls {
                 for tool_call in calls {
-                    let result = match tool_call.function.name.as_str() {
-                        "web_search" => {
-                            let tool: tools::web_search::WebSearch =
-                                serde_json::from_str(&tool_call.function.arguments)?;
-                            println!("[*] {:?}", tool);
-                            tool.execute().await?
-                        }
-                        "web_fetch" => {
-                            let tool: tools::web_fetch::WebFetch =
-                                serde_json::from_str(&tool_call.function.arguments)?;
-                            println!("[*] {:?}", tool);
-                            tool.execute().await?
-                        }
-                        _ => {
-                            unimplemented!("Handling of unknown tools")
-                        }
-                    };
-
+                    let result = tools::registry::dispatch(tool_call).await?;
                     messages.push(Message::tool_response(&tool_call.id, result.trim_end()));
                 }
                 continue;

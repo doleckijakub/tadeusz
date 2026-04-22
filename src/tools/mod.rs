@@ -1,25 +1,19 @@
-use openrouter_rs::{error::OpenRouterError, types::Tool};
+use async_trait::async_trait;
 
-pub mod web_search;
+use crate::error::Result;
+
 pub mod web_fetch;
+pub mod web_search;
 
-pub trait ToolType {
+pub mod registry;
+
+#[async_trait]
+pub trait ToolType: Send + Sync {
     fn name() -> &'static str;
 
     fn description() -> &'static str;
 
     fn parameters() -> serde_json::Value;
 
-    async fn execute(&self) -> Result<String, Box<dyn std::error::Error>>;
-}
-
-pub fn tool<T>() -> Result<Tool, OpenRouterError>
-where
-    T: ToolType,
-{
-    Tool::builder()
-        .name(T::name())
-        .description(T::description())
-        .parameters(T::parameters())
-        .build()
+    async fn execute(&self) -> Result<String>;
 }
