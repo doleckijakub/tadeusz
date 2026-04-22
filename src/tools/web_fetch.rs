@@ -26,6 +26,8 @@ impl Tool for WebFetch {
             .await
             .map_err(|e| format!("Parsing the response failed: {e}"))?;
 
-        Ok(resp)
+        let md = html2md::rewrite_html(&resp, false);
+
+        Ok(md)
     }
 }
