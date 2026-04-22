@@ -1,45 +1,30 @@
 use async_trait::async_trait;
 use reqwest;
 use serde::Deserialize;
-use serde_json::json;
+use tool::{Tool, ToolResult};
 
-use crate::error::Result;
-
-#[derive(Debug, Deserialize)]
+#[derive(Default, Tool, Deserialize, Debug)]
+#[tool(
+    name = "web_fetch",
+    description = "Fetch a URL and return the contents"
+)]
 pub struct WebFetch {
+    #[required]
+    #[description("The fetched URL")]
     pub url: String,
 }
 
 #[async_trait]
-impl super::ToolType for WebFetch {
-    fn name() -> &'static str {
-        "web_fetch"
-    }
-
-    fn description() -> &'static str {
-        "Fetch a URL and return the raw HTML text of the page"
-    }
-
-    fn parameters() -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "The absolute URL to fetch"
-                }
-            },
-            "required": ["url"]
-        })
-    }
-
-    async fn execute(&self) -> Result<String> {
+impl Tool for WebFetch {
+    async fn execute(&self) -> ToolResult<String> {
         let resp = reqwest::Client::new()
             .get(&self.url)
             .send()
-            .await?
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?
             .text()
-            .await?;
+            .await
+            .map_err(|e| format!("Parsing the response failed: {e}"))?;
 
         Ok(resp)
     }

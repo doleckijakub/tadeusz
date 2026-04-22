@@ -6,17 +6,11 @@ pub enum Error {
     #[error("Input/Output Error: {0}")]
     IO(#[from] std::io::Error),
 
-    #[error("Serialization Error: {0}")]
-    Serde(#[from] serde_json::Error),
+    #[error("Tool execution failed: {0}")]
+    ToolExecution(String),
 
     #[error("Model tried to call an unknown tool: {0}")]
     UnknownTool(String),
-
-    #[error("Request Error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-
-    #[error("DuckDuckGo Error: {0}")]
-    DuckDuckGo(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

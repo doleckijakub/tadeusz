@@ -2,46 +2,29 @@ use async_trait::async_trait;
 use duckduckgo::browser::Browser;
 use duckduckgo::response::Response;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use tool::{Tool, ToolResult};
 
-use crate::error::{Error, Result};
-
-#[derive(Debug, Deserialize)]
+#[derive(Default, Tool, Debug, Deserialize)]
+#[tool(
+    name = "web_search",
+    description = "Perform a web search and return a summary of results"
+)]
 pub struct WebSearch {
+    #[required]
+    #[description("The search query to look up")]
     pub query: String,
 }
 
 #[async_trait]
-impl super::ToolType for WebSearch {
-    fn name() -> &'static str {
-        "web_search"
-    }
-
-    fn description() -> &'static str {
-        "Perform a web search using DuckDuckGo and return a summary of results"
-    }
-
-    fn parameters() -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query to look up"
-                }
-            },
-            "required": ["query"]
-        })
-    }
-
-    async fn execute(&self) -> Result<String> {
+impl Tool for WebSearch {
+    async fn execute(&self) -> ToolResult<String> {
         let browser = Browser::new();
 
         let path = format!("?q={}", urlencoding::encode(&self.query));
         let resp: Response = browser
             .get_api_response(&path, None)
             .await
-            .map_err(|e| Error::DuckDuckGo(e.to_string()))?;
+            .map_err(|e| format!("DuckDuckGo Error: {}", e))?;
 
         let mut out = String::new();
 

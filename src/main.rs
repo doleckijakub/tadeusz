@@ -24,6 +24,14 @@ async fn main() -> Result<()> {
 
     let available_tools = tools::registry::all_tools()?;
 
+    println!(
+        "available_tools = {:?}",
+        available_tools
+            .iter()
+            .map(|t| t.function.name.to_string())
+            .collect::<Vec<_>>()
+    );
+
     let mut messages = vec![Message::new(
         Role::System,
         "\

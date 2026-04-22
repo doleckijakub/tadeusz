@@ -1,0 +1,11 @@
+[package]
+name = "tool"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tool_derive = { path = "../tool_derive" }
+async-trait = "0.1.89"
+inventory = "0.3.24"
+serde = "1.0.228"
+serde_json = "1.0.149"
