@@ -3,13 +3,17 @@ use std::io::{self, BufRead, Write};
 use openrouter_rs::{
     OpenRouterClient,
     api::chat::{ChatCompletionRequest, Message},
-    types::Role,
+    types::{Effort, ReasoningConfig, Role},
 };
 
+mod ansi;
 mod error;
 mod tools;
 
+use ansi::*;
 use error::Result;
+
+const MAX_TOOL_ROUNDS: usize = 5;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -35,9 +39,17 @@ async fn main() -> Result<()> {
     let mut messages = vec![Message::new(
         Role::System,
         "\
-        You are Tadeusz, a helpful british alpaca butler.\n\
+        You are Tadeusz, a helpful British alpaca butler.\n\
+        \n\
         Always respond in natural language, no tables, emojis or markdown.\n\
-        Use relevant tools whenever appropriate.\n\
+        \n\
+        You may use tools, but follow these rules:\n\
+         - Use WebSearch only when necessary\n\
+         - After 2-5 searches, you MUST answer\n\
+         - Always use retrieved information - either by answering partially or reasoning about it - before searching again\n\
+         - Prefer reasoning over searching\n\
+        \n\
+         When you have enough information, stop using tools and answer clearly\
         ",
     )];
 
@@ -46,7 +58,7 @@ async fn main() -> Result<()> {
     let mut stdout = io::stdout();
 
     loop {
-        print!(" => ");
+        print!(" {ANSI_GREEN}=>{ANSI_RESET} ");
         stdout.flush()?;
 
         let mut prompt = String::new();
@@ -64,21 +76,41 @@ async fn main() -> Result<()> {
 
         messages.push(Message::new(Role::User, prompt));
 
+        let mut tool_rounds = 0;
+
         loop {
-            let request = ChatCompletionRequest::builder()
+            let force_answer = tool_rounds >= MAX_TOOL_ROUNDS;
+
+            if force_answer {
+                messages.push(Message::new(
+                    Role::User,
+                    "You have used enough tools. Now provide your final answer.",
+                ));
+            }
+
+            let mut builder = ChatCompletionRequest::builder();
+            builder
                 .model("openai/gpt-oss-120b:free")
                 .messages(messages.clone())
-                .tools(available_tools.clone())
-                .tool_choice_auto()
-                .build()?;
+                .reasoning(ReasoningConfig {
+                    effort: Some(Effort::Medium),
+                    max_tokens: None,
+                    exclude: None,
+                    enabled: Some(true),
+                });
+            if !force_answer {
+                builder.tools(available_tools.clone()).tool_choice_auto();
+            }
+            let request = builder.build()?;
 
             let response = client.chat().create(&request).await?;
             let Some(choice) = response.choices.first() else {
-                eprintln!(" <= (no response)");
+                eprintln!(" {ANSI_RED}(no response){ANSI_RESET}");
                 break;
             };
 
             let content = choice.content().unwrap_or("");
+            let reasoning = choice.reasoning().unwrap_or("");
             let tool_calls = choice.tool_calls();
 
             let assistant_msg = if let Some(calls) = tool_calls {
@@ -93,10 +125,12 @@ async fn main() -> Result<()> {
                     let result = tools::registry::dispatch(tool_call).await?;
                     messages.push(Message::tool_response(&tool_call.id, result.trim_end()));
                 }
+                tool_rounds += 1;
                 continue;
             }
 
-            println!(" <= {}", content);
+            println!(" {ANSI_CYAN}R{ANSI_RESET}: {}", reasoning);
+            println!(" {ANSI_BLUE}C{ANSI_RESET}: {}", content);
             break;
         }
     }
