@@ -14,6 +14,13 @@ pub trait AnyTool: Send + Sync {
     async fn call(&self, args: &str) -> ToolResult<String>;
 }
 
+#[async_trait]
+pub trait PreparedAnyTool: Send + Sync {
+    fn debug_name(&self) -> &'static str;
+    fn debug_string(&self) -> String;
+    async fn call(&self) -> ToolResult<String>;
+}
+
 #[derive(Default)]
 pub struct TypedTool<T>(PhantomData<fn() -> T>);
 
@@ -37,11 +44,31 @@ where
     async fn call(&self, args: &str) -> ToolResult<String> {
         let tool: T =
             serde_json::from_str(args).map_err(|e| format!("Serialization error: {e}"))?;
-        eprintln!("[*] {:?}", tool);
         tool.execute().await
     }
 }
 
-pub struct ToolRegistration(pub fn() -> Box<dyn AnyTool>);
+pub struct PreparedTypedTool<T>(pub T);
+
+#[async_trait]
+impl<T: Tool + Debug + Send + Sync> PreparedAnyTool for PreparedTypedTool<T> {
+    fn debug_name(&self) -> &'static str {
+        let full = std::any::type_name::<T>();
+        full.rsplit("::").next().unwrap_or(full)
+    }
+
+    fn debug_string(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    async fn call(&self) -> ToolResult<String> {
+        self.0.execute().await
+    }
+}
+
+pub struct ToolRegistration(
+    pub fn() -> Box<dyn AnyTool>,
+    pub fn(&str) -> ToolResult<Box<dyn PreparedAnyTool>>,
+);
 
 inventory::collect!(ToolRegistration);

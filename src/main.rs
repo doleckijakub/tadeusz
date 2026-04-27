@@ -11,7 +11,7 @@ mod error;
 mod tools;
 
 use ansi::*;
-use error::Result;
+use error::{Error, Result};
 
 const MAX_TOOL_ROUNDS: usize = 5;
 
@@ -122,15 +122,20 @@ async fn main() -> Result<()> {
 
             if let Some(calls) = tool_calls {
                 for tool_call in calls {
-                    let result = tools::registry::dispatch(tool_call).await?;
+                    let tool = tools::registry::create(tool_call)?;
+                    let struct_name = tool.debug_name();
+                    let debug_str = tool.debug_string();
+                    println!("{ANSI_YELLOW}{}{ANSI_RESET}{}", struct_name, &debug_str[struct_name.len()..]);
+                    let result = tool.call().await.map_err(Error::ToolExecution)?;
+                    println!("{ANSI_MAGENTA}{}{ANSI_RESET}", result);
                     messages.push(Message::tool_response(&tool_call.id, result.trim_end()));
                 }
                 tool_rounds += 1;
                 continue;
             }
 
-            println!(" {ANSI_CYAN}R{ANSI_RESET}: {}", reasoning);
-            println!(" {ANSI_BLUE}C{ANSI_RESET}: {}", content);
+            println!("{ANSI_CYAN}REASONING{ANSI_RESET}: {}", reasoning);
+            println!("{ANSI_BLUE}RESPONSE{ANSI_RESET}: {}", content);
             break;
         }
     }

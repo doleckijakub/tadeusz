@@ -206,11 +206,21 @@ fn emit_impl(
         }
 
         ::inventory::submit! {
-            ::tool::registry::ToolRegistration(|| {
-                ::std::boxed::Box::new(
-                    ::tool::registry::TypedTool::<#struct_name>::default()
-                )
-            })
+            ::tool::registry::ToolRegistration(
+                || {
+                    ::std::boxed::Box::new(
+                        ::tool::registry::TypedTool::<#struct_name>::default()
+                    )
+                },
+                |args| {
+                    ::serde_json::from_str::<#struct_name>(args)
+                        .map_err(|e| format!("Serialization error: {e}"))
+                        .map(|tool| {
+                            ::std::boxed::Box::new(::tool::registry::PreparedTypedTool(tool))
+                                as ::std::boxed::Box<dyn ::tool::registry::PreparedAnyTool>
+                        })
+                },
+            )
         }
     }
 }

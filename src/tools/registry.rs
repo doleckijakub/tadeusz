@@ -1,6 +1,8 @@
 use crate::error::{Error, Result};
 use openrouter_rs::types::{Tool as ApiTool, ToolCall};
 
+pub use tool::registry::PreparedAnyTool;
+
 pub fn all_tools() -> Result<Vec<ApiTool>> {
     inventory::iter::<tool::registry::ToolRegistration>()
         .map(|r| {
@@ -15,17 +17,14 @@ pub fn all_tools() -> Result<Vec<ApiTool>> {
         .collect()
 }
 
-pub async fn dispatch(call: &ToolCall) -> Result<String> {
+pub fn create(call: &ToolCall) -> Result<Box<dyn PreparedAnyTool>> {
     let name = &call.function.name;
     let args = &call.function.arguments;
 
     for r in inventory::iter::<tool::registry::ToolRegistration>() {
         let t = (r.0)();
         if t.name() == name {
-            return t
-                .call(args)
-                .await
-                .map_err(|e| Error::ToolExecution(e.to_string()));
+            return (r.1)(args).map_err(Error::ToolExecution);
         }
     }
 
