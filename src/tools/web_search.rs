@@ -1,13 +1,12 @@
 use async_trait::async_trait;
 use duckduckgo::browser::Browser;
-use duckduckgo::response::Response;
 use serde::Deserialize;
 use tool::{Tool, ToolResult};
 
 #[derive(Default, Tool, Debug, Deserialize)]
 #[tool(
     name = "web_search",
-    description = "Perform a web search and return a summary of results"
+    description = "Perform a web search and return results"
 )]
 pub struct WebSearch {
     #[required]
@@ -15,84 +14,36 @@ pub struct WebSearch {
     pub query: String,
 }
 
+const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0";
+
 #[async_trait]
 impl Tool for WebSearch {
     async fn execute(&self) -> ToolResult<String> {
         let browser = Browser::new();
 
-        let path = format!("?q={}", urlencoding::encode(&self.query));
-        let resp: Response = browser
-            .get_api_response(&path, None)
+        let results = browser
+            .lite_search(&self.query, "wt-wt", Some(8), USER_AGENT)
             .await
-            .map_err(|e| format!("DuckDuckGo Error: {}", e))?;
+            .map_err(|e| format!("DuckDuckGo Error: {e}"))?;
 
-        let mut out = String::new();
-
-        if let Some(heading) = &resp.heading {
-            out.push_str(&format!("Heading: {}\n\n", heading));
+        if results.is_empty() {
+            return Ok("No results found.".to_string());
         }
 
-        if let Some(abstract_text) = &resp.abstract_text {
-            out.push_str(&format!("Abstract: {}\n", abstract_text));
-            if let Some(source) = &resp.abstract_source {
-                out.push_str(&format!("Source: {}\n", source));
-            }
-            if let Some(url) = &resp.abstract_url {
-                out.push_str(&format!("URL: {}\n", url));
-            }
-            out.push('\n');
-        }
-
-        if let Some(definition) = &resp.definition {
-            out.push_str(&format!("Definition: {}\n", definition));
-            if let Some(source) = &resp.definition_source {
-                out.push_str(&format!("Source: {}\n", source));
-            }
-            if let Some(url) = &resp.definition_url {
-                out.push_str(&format!("URL: {}\n", url));
-            }
-            out.push('\n');
-        }
-
-        if let Some(answer) = &resp.answer {
-            out.push_str(&format!("Answer: {}\n", answer));
-            if let Some(answer_type) = &resp.answer_type {
-                out.push_str(&format!("Type: {}\n", answer_type));
-            }
-            out.push('\n');
-        }
-
-        if !resp.related_topics.is_empty() {
-            out.push_str("Related Topics:\n");
-            for (i, topic) in resp.related_topics.iter().enumerate().take(5) {
-                if let Some(text) = &topic.text {
-                    out.push_str(&format!("  {}. {}", i + 1, text));
-                    if let Some(url) = &topic.first_url {
-                        out.push_str(&format!(" — {}", url));
-                    }
-                    out.push('\n');
+        let out = results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let snippet = r.snippet.trim();
+                if snippet.is_empty() {
+                    format!("{}. {}\n   {}", i + 1, r.title, r.url)
+                } else {
+                    format!("{}. {}\n   {}\n   {}", i + 1, r.title, snippet, r.url)
                 }
-            }
-            out.push('\n');
-        }
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
 
-        if !resp.results.is_empty() {
-            out.push_str("Results:\n");
-            for (i, result) in resp.results.iter().enumerate().take(5) {
-                if let Some(text) = &result.get("text") {
-                    out.push_str(&format!("  {}. {}", i + 1, text));
-                    if let Some(url) = &result.get("first_url") {
-                        out.push_str(&format!(" — {}", url));
-                    }
-                    out.push('\n');
-                }
-            }
-        }
-
-        if out.trim().is_empty() {
-            Ok("No results found.".to_string())
-        } else {
-            Ok(out.trim_end().to_string())
-        }
+        Ok(out)
     }
 }
