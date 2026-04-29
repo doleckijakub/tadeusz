@@ -1,9 +1,18 @@
 services:
+  searxng:
+    build: ./searxng
+    restart: unless-stopped
+    environment:
+      - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY}
+    networks:
+      - tadeusz-net
+
   api:
     build: ./api
     restart: unless-stopped
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - SEARXNG_URL=http://searxng:8080
     networks:
       - tadeusz-net
 
