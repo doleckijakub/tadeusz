@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tadeusz</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .bubble {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-950 text-gray-100 flex flex-col h-screen">
+
+  <header class="px-6 py-4 border-b border-gray-800 flex items-center gap-3">
+    <span class="text-lg font-semibold tracking-tight">Tadeusz</span>
+  </header>
+
+  <div id="messages" class="flex-1 overflow-y-auto px-4 py-6 space-y-4 max-w-3xl w-full mx-auto"></div>
+
+  <div class="border-t border-gray-800 px-4 py-4 max-w-3xl w-full mx-auto">
+    <form id="form" class="flex gap-2">
+      <input id="input" type="text" autocomplete="off" placeholder="Ask Tadeusz something…" class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-sm
+               placeholder-gray-500 focus:outline-none focus:border-gray-500 transition-colors" />
+      <button type="submit" id="send-btn" class="bg-white text-gray-950 rounded-xl px-4 py-2.5 text-sm font-medium
+               hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+        Send
+      </button>
+    </form>
+  </div>
+
+  <script>
+    let sessionId = null;
+
+    fetch('/api/session', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => { sessionId = d.session_id; })
+      .catch(() => appendError('Could not connect to Tadeusz.'));
+
+    const messagesEl = document.getElementById('messages');
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send-btn');
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text || !sessionId) return;
+
+      input.value = '';
+      setDisabled(true);
+
+      appendBubble('user', text);
+      const bubble = appendBubble('assistant', '');
+      const state = { pendingToolEl: null };
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId, message: text }),
+        });
+
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try { handleEvent(JSON.parse(line.slice(6)), bubble, state); } catch { }
+          }
+        }
+      } catch (err) {
+        bubble.querySelector('.bubble').textContent += '\n[error: ' + err.message + ']';
+      }
+
+      setDisabled(false);
+      input.focus();
+    });
+
+    function handleEvent(ev, bubble, state) {
+      if (ev.type === 'content') {
+        bubble.querySelector('.bubble').textContent += ev.text;
+        bubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+      } else if (ev.type === 'reasoning') {
+        let details = bubble.querySelector('.reasoning-details');
+        if (!details) {
+          details = document.createElement('details');
+          details.className = 'reasoning-details mb-2 text-xs text-gray-500';
+          details.open = true;
+          const summary = document.createElement('summary');
+          summary.className = 'cursor-pointer select-none';
+          summary.textContent = 'Reasoning';
+          const pre = document.createElement('pre');
+          pre.className = 'mt-1 whitespace-pre-wrap font-mono text-justify';
+          details.appendChild(summary);
+          details.appendChild(pre);
+          bubble.insertBefore(details, bubble.querySelector('.bubble'));
+        }
+        details.querySelector('pre').textContent += ev.text;
+
+      } else if (ev.type === 'tool') {
+        const details = document.createElement('details');
+        details.className =
+          'mb-1 text-xs border border-yellow-700/40 rounded-lg overflow-hidden';
+
+        const summary = document.createElement('summary');
+        summary.className =
+          'flex items-center gap-1.5 px-2.5 py-1.5 bg-yellow-900/40 text-yellow-300 ' +
+          'cursor-pointer select-none list-none animate-pulse';
+        summary.textContent = '⚙ ' + ev.name;
+        details.appendChild(summary);
+
+        const body = document.createElement('div');
+        body.className = 'p-2.5 bg-gray-900/60 space-y-1.5';
+
+        const argsLabel = document.createElement('div');
+        argsLabel.className = 'text-gray-500';
+        argsLabel.textContent = 'Arguments';
+        body.appendChild(argsLabel);
+
+        const argsPre = document.createElement('pre');
+        argsPre.className = 'whitespace-pre-wrap font-mono text-gray-300 break-all';
+        try { argsPre.textContent = JSON.stringify(JSON.parse(ev.args), null, 2); }
+        catch { argsPre.textContent = ev.args; }
+        body.appendChild(argsPre);
+
+        const resultSection = document.createElement('div');
+        resultSection.className = 'tool-result-section hidden';
+
+        const resultLabel = document.createElement('div');
+        resultLabel.className = 'text-gray-500 mt-1';
+        resultLabel.textContent = 'Response';
+        resultSection.appendChild(resultLabel);
+
+        const resultPre = document.createElement('pre');
+        resultPre.className = 'whitespace-pre-wrap font-mono text-gray-300 break-all';
+        resultSection.appendChild(resultPre);
+
+        body.appendChild(resultSection);
+        details.appendChild(body);
+        bubble.querySelector('.tools').appendChild(details);
+        state.pendingToolEl = details;
+
+      } else if (ev.type === 'tool_result') {
+        if (state.pendingToolEl) {
+          const summary = state.pendingToolEl.querySelector('summary');
+          summary.classList.remove('animate-pulse');
+          const section = state.pendingToolEl.querySelector('.tool-result-section');
+          section.querySelector('pre').textContent = ev.text;
+          section.classList.remove('hidden');
+          state.pendingToolEl = null;
+        }
+
+      } else if (ev.type === 'error') {
+        bubble.querySelector('.bubble').textContent += '\n[error: ' + ev.text + ']';
+      }
+    }
+
+    function appendBubble(role, text) {
+      const wrap = document.createElement('div');
+      wrap.className = role === 'user'
+        ? 'flex justify-end'
+        : 'flex justify-start';
+
+      const inner = document.createElement('div');
+      inner.className = role === 'user'
+        ? 'max-w-lg bg-gray-800 rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm'
+        : 'max-w-2xl rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm w-full';
+
+      if (role === 'assistant') {
+        const tools = document.createElement('div');
+        tools.className = 'tools flex flex-wrap flex-col mb-1';
+        inner.appendChild(tools);
+      }
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble text-sm leading-relaxed text-justify';
+      bubble.textContent = text;
+      inner.appendChild(bubble);
+
+      wrap.appendChild(inner);
+      messagesEl.appendChild(wrap);
+      wrap.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      return inner;
+    }
+
+    function appendError(msg) {
+      const el = document.createElement('div');
+      el.className = 'text-center text-red-400 text-sm py-2';
+      el.textContent = msg;
+      messagesEl.appendChild(el);
+    }
+
+    function setDisabled(v) {
+      sendBtn.disabled = v;
+      input.disabled = v;
+    }
+  </script>
+</body>
+
+</html>
