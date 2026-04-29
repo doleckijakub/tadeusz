@@ -4,13 +4,11 @@ use quote::quote;
 use syn::{Data, DeriveInput, Error, Fields, LitStr, Type, parse_macro_input};
 
 struct ToolArgs {
-    name: String,
     description: String,
 }
 
 impl syn::parse::Parse for ToolArgs {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut name: Option<(String, proc_macro2::Span)> = None;
         let mut description: Option<(String, proc_macro2::Span)> = None;
 
         while !input.is_empty() {
@@ -19,7 +17,6 @@ impl syn::parse::Parse for ToolArgs {
             let value: LitStr = input.parse()?;
 
             match key.to_string().as_str() {
-                "name" => name = Some((value.value(), key.span())),
                 "description" => description = Some((value.value(), key.span())),
                 other => {
                     return Err(Error::new(
@@ -34,14 +31,11 @@ impl syn::parse::Parse for ToolArgs {
             }
         }
 
-        let name = name
-            .ok_or_else(|| input.error("missing `name` in #[tool(...)]"))?
-            .0;
         let description = description
             .ok_or_else(|| input.error("missing `description` in #[tool(...)]"))?
             .0;
 
-        Ok(ToolArgs { name, description })
+        Ok(ToolArgs { description })
     }
 }
 
@@ -50,6 +44,14 @@ struct FieldInfo {
     description: Option<String>,
     required: bool,
     json_type: &'static str,
+}
+
+fn is_option_type(ty: &Type) -> bool {
+    let Type::Path(tp) = ty else { return false };
+    let Some(seg) = tp.path.segments.last() else {
+        return false;
+    };
+    seg.ident == "Option"
 }
 
 fn rust_type_to_json_schema(ty: &Type) -> &'static str {
@@ -84,11 +86,12 @@ fn derive_tool_inner(input: DeriveInput) -> syn::Result<TokenStream2> {
         .ok_or_else(|| {
             Error::new_spanned(
                 &input,
-                "#[derive(Tool)] requires a #[tool(name = \"...\", description = \"...\")] attribute",
+                "#[derive(Tool)] requires a #[tool(description = \"...\")] attribute",
             )
         })?;
 
-    let ToolArgs { name, description } = tool_attr.parse_args::<ToolArgs>()?;
+    let ToolArgs { description } = tool_attr.parse_args::<ToolArgs>()?;
+    let name = input.ident.to_string();
 
     let named_fields = match &input.data {
         Data::Struct(s) => match &s.fields {
@@ -118,17 +121,12 @@ fn derive_tool_inner(input: DeriveInput) -> syn::Result<TokenStream2> {
             .ok_or_else(|| Error::new_spanned(field, "expected a named field"))?
             .to_string();
 
+        let required = !is_option_type(&field.ty);
         let json_type = rust_type_to_json_schema(&field.ty);
         let mut field_desc: Option<String> = None;
-        let mut required = false;
 
         for attr in &field.attrs {
-            if attr.path().is_ident("required") {
-                attr.meta.require_path_only().map_err(|_| {
-                    Error::new_spanned(attr, "#[required] does not take any arguments")
-                })?;
-                required = true;
-            } else if attr.path().is_ident("description") {
+            if attr.path().is_ident("description") {
                 let lit: LitStr = attr.parse_args().map_err(|e| {
                     Error::new_spanned(
                         attr,
@@ -225,7 +223,7 @@ fn emit_impl(
     }
 }
 
-#[proc_macro_derive(Tool, attributes(tool, required, description))]
+#[proc_macro_derive(Tool, attributes(tool, description))]
 pub fn derive_tool(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     derive_tool_inner(input)

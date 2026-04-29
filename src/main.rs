@@ -123,9 +123,9 @@ async fn main() -> Result<()> {
             if let Some(calls) = tool_calls {
                 for tool_call in calls {
                     let tool = tools::registry::create(tool_call)?;
-                    let struct_name = tool.debug_name();
+                    let name = tool.name();
                     let debug_str = tool.debug_string();
-                    println!("{ANSI_YELLOW}{}{ANSI_RESET}{}", struct_name, &debug_str[struct_name.len()..]);
+                    println!("{ANSI_YELLOW}{}{ANSI_RESET}{}", name, &debug_str[name.len()..]);
                     let result = tool.call().await.map_err(Error::ToolExecution)?;
                     println!("{ANSI_MAGENTA}{}{ANSI_RESET}", result);
                     messages.push(Message::tool_response(&tool_call.id, result.trim_end()));

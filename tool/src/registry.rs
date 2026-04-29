@@ -16,7 +16,7 @@ pub trait AnyTool: Send + Sync {
 
 #[async_trait]
 pub trait PreparedAnyTool: Send + Sync {
-    fn debug_name(&self) -> &'static str;
+    fn name(&self) -> &'static str;
     fn debug_string(&self) -> String;
     async fn call(&self) -> ToolResult<String>;
 }
@@ -52,7 +52,7 @@ pub struct PreparedTypedTool<T>(pub T);
 
 #[async_trait]
 impl<T: Tool + Debug + Send + Sync> PreparedAnyTool for PreparedTypedTool<T> {
-    fn debug_name(&self) -> &'static str {
+    fn name(&self) -> &'static str {
         let full = std::any::type_name::<T>();
         full.rsplit("::").next().unwrap_or(full)
     }

@@ -4,12 +4,8 @@ use serde::Deserialize;
 use tool::{Tool, ToolResult};
 
 #[derive(Default, Tool, Deserialize, Debug)]
-#[tool(
-    name = "web_fetch",
-    description = "Fetch a URL and return the contents"
-)]
+#[tool(description = "Fetch a URL and return the contents")]
 pub struct WebFetch {
-    #[required]
     #[description("The fetched URL")]
     pub url: String,
 }

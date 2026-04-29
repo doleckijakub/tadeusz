@@ -4,12 +4,8 @@ use serde::Deserialize;
 use tool::{Tool, ToolResult};
 
 #[derive(Default, Tool, Debug, Deserialize)]
-#[tool(
-    name = "web_search",
-    description = "Perform a web search and return results"
-)]
+#[tool(description = "Perform a web search and return results")]
 pub struct WebSearch {
-    #[required]
     #[description("The search query to look up")]
     pub query: String,
 }
