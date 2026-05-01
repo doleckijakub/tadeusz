@@ -43,7 +43,7 @@ struct FieldInfo {
     ident: String,
     description: Option<String>,
     required: bool,
-    json_type: &'static str,
+    field_type: TokenStream2,
 }
 
 fn is_option_type(ty: &Type) -> bool {
@@ -52,30 +52,6 @@ fn is_option_type(ty: &Type) -> bool {
         return false;
     };
     seg.ident == "Option"
-}
-
-fn rust_type_to_json_schema(ty: &Type) -> &'static str {
-    let Type::Path(tp) = ty else { return "string" };
-    let Some(seg) = tp.path.segments.last() else {
-        return "string";
-    };
-
-    if seg.ident == "Option"
-        && let syn::PathArguments::AngleBracketed(ab) = &seg.arguments
-        && let Some(syn::GenericArgument::Type(inner)) = ab.args.first()
-    {
-        return rust_type_to_json_schema(inner);
-    }
-
-    match seg.ident.to_string().as_str() {
-        "String" | "str" => "string",
-        "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16" | "u32" | "u64" | "u128" | "isize"
-        | "usize" => "integer",
-        "f32" | "f64" => "number",
-        "bool" => "boolean",
-        "Vec" => "array",
-        _ => "object",
-    }
 }
 
 fn derive_tool_inner(input: DeriveInput) -> syn::Result<TokenStream2> {
@@ -122,7 +98,8 @@ fn derive_tool_inner(input: DeriveInput) -> syn::Result<TokenStream2> {
             .to_string();
 
         let required = !is_option_type(&field.ty);
-        let json_type = rust_type_to_json_schema(&field.ty);
+        let ty = &field.ty;
+        let field_type = quote! { #ty };
         let mut field_desc: Option<String> = None;
 
         for attr in &field.attrs {
@@ -141,7 +118,7 @@ fn derive_tool_inner(input: DeriveInput) -> syn::Result<TokenStream2> {
             ident,
             description: field_desc,
             required,
-            json_type,
+            field_type,
         });
     }
 
@@ -158,18 +135,21 @@ fn emit_impl(
         .iter()
         .map(|f| {
             let field_name = &f.ident;
-            let json_type = f.json_type;
+            let field_type = &f.field_type;
             match &f.description {
                 Some(desc) => quote! {
-                    properties.insert(
-                        #field_name.to_string(),
-                        ::serde_json::json!({ "type": #json_type, "description": #desc }),
-                    );
+                    {
+                        let mut schema = <#field_type as ::tool::ToolFieldSchema>::field_schema();
+                        if let Some(obj) = schema.as_object_mut() {
+                            obj.insert("description".to_string(), ::serde_json::json!(#desc));
+                        }
+                        properties.insert(#field_name.to_string(), schema);
+                    }
                 },
                 None => quote! {
                     properties.insert(
                         #field_name.to_string(),
-                        ::serde_json::json!({ "type": #json_type }),
+                        <#field_type as ::tool::ToolFieldSchema>::field_schema(),
                     );
                 },
             }
@@ -227,6 +207,110 @@ fn emit_impl(
 pub fn derive_tool(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     derive_tool_inner(input)
+        .unwrap_or_else(|e| e.to_compile_error())
+        .into()
+}
+
+fn apply_rename_all(name: &str, rule: &str) -> String {
+    match rule {
+        "lowercase" => name.to_lowercase(),
+        "UPPERCASE" => name.to_uppercase(),
+        "camelCase" => {
+            let mut chars = name.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_lowercase().to_string() + chars.as_str(),
+            }
+        }
+        "snake_case" => to_snake_case(name),
+        "SCREAMING_SNAKE_CASE" => to_snake_case(name).to_uppercase(),
+        "kebab-case" => to_snake_case(name).replace('_', "-"),
+        _ => name.to_string(),
+    }
+}
+
+fn to_snake_case(s: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.extend(c.to_lowercase());
+    }
+    out
+}
+
+fn derive_field_schema_inner(input: DeriveInput) -> syn::Result<TokenStream2> {
+    let Data::Enum(data) = &input.data else {
+        return Err(Error::new_spanned(
+            &input,
+            "#[derive(ToolFieldSchema)] only supports enums",
+        ));
+    };
+
+    let mut rename_all: Option<String> = None;
+    for attr in &input.attrs {
+        if attr.path().is_ident("serde") {
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("rename_all") {
+                    let value = meta.value()?;
+                    let lit: LitStr = value.parse()?;
+                    rename_all = Some(lit.value());
+                }
+                Ok(())
+            });
+        }
+    }
+
+    let variant_names: Vec<String> = data
+        .variants
+        .iter()
+        .map(|variant| {
+            let mut individual_rename: Option<String> = None;
+            for attr in &variant.attrs {
+                if attr.path().is_ident("serde") {
+                    let _ = attr.parse_nested_meta(|meta| {
+                        if meta.path.is_ident("rename") {
+                            let value = meta.value()?;
+                            let lit: LitStr = value.parse()?;
+                            individual_rename = Some(lit.value());
+                        }
+                        Ok(())
+                    });
+                }
+            }
+            if let Some(renamed) = individual_rename {
+                renamed
+            } else {
+                let raw = variant.ident.to_string();
+                match rename_all.as_deref() {
+                    Some(rule) => apply_rename_all(&raw, rule),
+                    None => raw,
+                }
+            }
+        })
+        .collect();
+
+    let enum_name = &input.ident;
+
+    Ok(quote! {
+        impl ::tool::ToolFieldSchema for #enum_name {
+            fn field_schema() -> ::serde_json::Value {
+                let mut m = ::serde_json::Map::new();
+                m.insert("type".to_owned(), ::serde_json::Value::String("string".to_owned()));
+                m.insert("enum".to_owned(), ::serde_json::Value::Array(vec![
+                    #( ::serde_json::Value::String(#variant_names.to_owned()) ),*
+                ]));
+                ::serde_json::Value::Object(m)
+            }
+        }
+    })
+}
+
+#[proc_macro_derive(ToolFieldSchema, attributes(serde))]
+pub fn derive_tool_field_schema(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    derive_field_schema_inner(input)
         .unwrap_or_else(|e| e.to_compile_error())
         .into()
 }
