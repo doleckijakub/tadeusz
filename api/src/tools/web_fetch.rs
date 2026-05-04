@@ -23,13 +23,33 @@ impl Tool for WebFetch {
             .get(&self.url)
             .send()
             .await
-            .map_err(|e| format!("Request failed: {e}"))?
-            .text()
-            .await
-            .map_err(|e| format!("Parsing the response failed: {e}"))?;
+            .map_err(|e| format!("Request failed: {e}"))?;
 
-        let md = html2md::rewrite_html(&resp, false);
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
 
-        Ok(md)
+        if content_type.contains("text/html") || content_type.is_empty() {
+            let text = resp
+                .text()
+                .await
+                .map_err(|e| format!("Parsing the response failed: {e}"))?;
+            Ok(html2md::rewrite_html(&text, false))
+        } else if content_type.contains("application/pdf") {
+            let bytes = resp
+                .bytes()
+                .await
+                .map_err(|e| format!("Reading response failed: {e}"))?;
+            let text = pdf_extract::extract_text_from_mem(&bytes)
+                .map_err(|e| format!("PDF extraction failed: {e}"))?;
+            Ok(text)
+        } else {
+            Ok(format!(
+                "Unsupported data type: Tadeusz cannot yet read {content_type} documents"
+            ))
+        }
     }
 }
